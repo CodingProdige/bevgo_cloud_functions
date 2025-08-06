@@ -5,7 +5,7 @@ const { v4: uuidv4 } = require("uuid");
 const fs = require("fs");
 const path = require("path");
 
-const bucketName = "bevgo-client-management-rckxs5.appspot.com";
+const bucketName = "bevgo-client-management-rckxs5.firebasestorage.app";
 
 // Initialize Firebase Admin SDK if not already
 if (!admin.apps.length) {
