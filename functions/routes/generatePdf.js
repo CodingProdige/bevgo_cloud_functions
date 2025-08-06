@@ -5,27 +5,27 @@ const { v4: uuidv4 } = require("uuid");
 const fs = require("fs");
 const path = require("path");
 
-// Firebase Storage bucket
 const bucketName = "bevgo-client-management-rckxs5.firebasestorage.app";
 
 // Initialize Firebase Admin SDK if not already
 if (!admin.apps.length) {
   if (process.env.IS_LOCAL === "true") {
     console.log("🚀 Running in LOCAL mode - using Service Account");
-    const serviceAccount = require("../serviceAccountKey.json"); // Ensure this file exists locally
+    const serviceAccount = require("../serviceAccountKey.json"); // Local only
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
       storageBucket: bucketName,
     });
   } else {
-    console.log("🚀 Running in VM/Serverless mode - using Default Credentials");
+    console.log("🚀 Running in VM/Serverless mode - using Default GCP Credentials");
     admin.initializeApp({
+      credential: admin.credential.applicationDefault(), // <-- Important fix
       storageBucket: bucketName,
     });
   }
 }
 
-// Core handler function (works for both Express and Firebase)
+// Core handler (works for both Express and Firebase)
 const generatePdfHandler = async (req, res) => {
   try {
     const { htmlContent, fileName } = req.body;
@@ -62,7 +62,7 @@ const generatePdfHandler = async (req, res) => {
     const pdfBuffer = await page.pdf({ format: "A4" });
     await browser.close();
 
-    // Save PDF locally (temp path)
+    // Save PDF locally
     fs.writeFileSync(localFilePath, pdfBuffer);
 
     // Upload to Firebase Storage
