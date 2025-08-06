@@ -3,20 +3,21 @@ import puppeteer from "puppeteer";
 import { v4 as uuidv4 } from "uuid";
 import admin from "firebase-admin";
 import dotenv from "dotenv";
+
 dotenv.config();
 
 const bucketName = "bevgo-client-management-rckxs5.firebasestorage.app";
 
-// Firebase init (conditional)
+// Firebase initialization
 if (!admin.apps.length) {
   if (process.env.IS_LOCAL === "true") {
     console.log("🛠️ Running in LOCAL mode, loading service account...");
-    const { createRequire } = await import("module");
-    const require = createRequire(import.meta.url);
-    const serviceAccount = require("../serviceAccountKey.json");
+    const serviceAccount = await import("./serviceAccountKey.json", {
+      assert: { type: "json" }
+    });
 
     admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
+      credential: admin.credential.cert(serviceAccount.default),
       storageBucket: bucketName,
     });
   } else {
@@ -29,14 +30,17 @@ if (!admin.apps.length) {
 }
 
 const bucket = admin.storage().bucket();
-
 const app = express();
 app.use(express.json());
 
-// Reuse Puppeteer browser instance
+// Reuse one Puppeteer browser instance
 let browserPromise = puppeteer.launch({
   headless: "new",
-  args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
+  args: [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-gpu"
+  ]
 });
 
 app.post("/generatePdf", async (req, res) => {
@@ -59,18 +63,18 @@ app.post("/generatePdf", async (req, res) => {
 
     res.json({ status: "processing", pdfUrl: publicUrl });
 
-    // Upload in background
     const file = bucket.file(pdfFileName);
     await file.save(pdfBuffer, {
       metadata: { contentType: "application/pdf" },
-      resumable: false,
+      resumable: false
     });
     await file.makePublic();
+
   } catch (err) {
     console.error("PDF generation error:", err);
     res.status(500).json({
       error: "Failed to generate PDF",
-      details: err.message,
+      details: err.message
     });
   }
 });
