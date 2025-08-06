@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 import admin from "firebase-admin";
 
 // Firebase init
-import serviceAccount from "./serviceAccountKey.json" assert { type: "json" };
+import serviceAccount from "../serviceAccountKey.json" assert { type: "json" };
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   storageBucket: "bevgo-client-management-rckxs5.firebasestorage.app"
