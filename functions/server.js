@@ -1,19 +1,15 @@
-const express = require("express");
-const bodyParser = require("body-parser");
-require("dotenv").config();
+import express from "express";
+import dotenv from "dotenv";
+import generatePdfRouter from "./routes/generatePdf.js"; // Make sure this path is correct
 
-const generatePdf = require("./routes/generatePdf");
-const ping = require("./routes/ping");
+dotenv.config();
 
 const app = express();
-app.use(bodyParser.json({ limit: "10mb" }));
+app.use(express.json());
 
-// Routes
-app.post("/generatePdf", generatePdf);
-app.get("/ping", ping);
+app.use("/", generatePdfRouter);
 
-// Start server
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`PDF generator running on port ${PORT}`);
 });

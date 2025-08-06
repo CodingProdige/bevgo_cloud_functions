@@ -2,48 +2,32 @@ import express from "express";
 import puppeteer from "puppeteer";
 import { v4 as uuidv4 } from "uuid";
 import admin from "firebase-admin";
-import dotenv from "dotenv";
+import { readFile } from "fs/promises";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 
-dotenv.config();
+const router = express.Router();
 
-const bucketName = "bevgo-client-management-rckxs5.firebasestorage.app";
+// Resolve current directory
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const serviceAccount = JSON.parse(
+  await readFile(join(__dirname, "../serviceAccountKey.json"), "utf8")
+);
 
-// Firebase initialization
-if (!admin.apps.length) {
-  if (process.env.IS_LOCAL === "true") {
-    console.log("🛠️ Running in LOCAL mode, loading service account...");
-    const serviceAccount = await import("./serviceAccountKey.json", {
-      assert: { type: "json" }
-    });
-
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount.default),
-      storageBucket: bucketName,
-    });
-  } else {
-    console.log("🚀 Running in VM mode, using default GCP credentials...");
-    admin.initializeApp({
-      credential: admin.credential.applicationDefault(),
-      storageBucket: bucketName,
-    });
-  }
-}
-
+// Firebase init
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+  storageBucket: "bevgo-client-management-rckxs5.firebasestorage.app"
+});
 const bucket = admin.storage().bucket();
-const app = express();
-app.use(express.json());
 
-// Reuse one Puppeteer browser instance
+// Puppeteer instance
 let browserPromise = puppeteer.launch({
   headless: "new",
-  args: [
-    "--no-sandbox",
-    "--disable-setuid-sandbox",
-    "--disable-gpu"
-  ]
+  args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"]
 });
 
-app.post("/generatePdf", async (req, res) => {
+router.post("/generatePdf", async (req, res) => {
   try {
     const { htmlContent, invoiceNumber } = req.body;
     if (!htmlContent || !invoiceNumber) {
@@ -79,7 +63,4 @@ app.post("/generatePdf", async (req, res) => {
   }
 });
 
-const PORT = 8080;
-app.listen(PORT, () => {
-  console.log(`🚀 PDF generator running on port ${PORT}`);
-});
+export default router;
