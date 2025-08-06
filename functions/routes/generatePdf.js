@@ -1,106 +1,72 @@
-const puppeteer = require("puppeteer");
-const chromium = require("@sparticuz/chromium");
-const admin = require("firebase-admin");
-const { v4: uuidv4 } = require("uuid");
-const fs = require("fs");
-const path = require("path");
+import express from "express";
+import puppeteer from "puppeteer";
+import { v4 as uuidv4 } from "uuid";
+import admin from "firebase-admin";
 
-const bucketName = "bevgo-client-management-rckxs5.firebasestorage.app";
+// Firebase init
+import serviceAccount from "./serviceAccountKey.json" assert { type: "json" };
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+  storageBucket: "bevgo-client-management-rckxs5.firebasestorage.app"
+});
+const bucket = admin.storage().bucket();
 
-// Initialize Firebase Admin SDK if not already
-if (!admin.apps.length) {
-  if (process.env.IS_LOCAL === "true") {
-    console.log("🚀 Running in LOCAL mode - using Service Account");
-    const serviceAccount = require("../serviceAccountKey.json"); // Local only
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-      storageBucket: bucketName,
-    });
-  } else {
-    console.log("🚀 Running in VM/Serverless mode - using Default GCP Credentials");
-    admin.initializeApp({
-      credential: admin.credential.applicationDefault(), // <-- Important fix
-      storageBucket: bucketName,
-    });
-  }
-}
+const app = express();
+app.use(express.json());
 
-// Core handler (works for both Express and Firebase)
-const generatePdfHandler = async (req, res) => {
+// Keep one Puppeteer instance alive
+let browserPromise = puppeteer.launch({
+  headless: "new",
+  args: [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-gpu"
+  ]
+});
+
+app.post("/generatePdf", async (req, res) => {
   try {
-    const { htmlContent, fileName } = req.body;
-
-    if (!htmlContent) {
-      return res.status(400).json({ error: "Missing HTML content" });
+    const { htmlContent, invoiceNumber } = req.body;
+    if (!htmlContent || !invoiceNumber) {
+      return res.status(400).json({ error: "Missing HTML content or invoiceNumber" });
     }
 
-    const pdfFileName = `${fileName || uuidv4()}.pdf`;
-    const localFilePath = path.join("/tmp", pdfFileName);
-
-    let browser;
-
-    // Use Puppeteer's Chromium locally, sparticuz/chromium in production
-    if (process.env.IS_LOCAL === "true") {
-      console.log("📄 Using Puppeteer's Chromium (local)");
-      browser = await puppeteer.launch({
-        headless: true,
-        args: ["--no-sandbox", "--disable-setuid-sandbox"],
-      });
-    } else {
-      console.log("📄 Using sparticuz/chromium (production)");
-      browser = await puppeteer.launch({
-        executablePath: await chromium.executablePath(),
-        args: chromium.args,
-        headless: chromium.headless,
-        ignoreHTTPSErrors: true,
-      });
-    }
-
+    // Reuse browser
+    const browser = await browserPromise;
     const page = await browser.newPage();
+
+    // Load HTML directly
     await page.setContent(htmlContent, { waitUntil: "networkidle0" });
 
-    const pdfBuffer = await page.pdf({ format: "A4" });
-    await browser.close();
+    // Generate PDF buffer
+    const pdfBuffer = await page.pdf({ format: "A4", printBackground: true });
+    await page.close();
 
-    // Save PDF locally
-    fs.writeFileSync(localFilePath, pdfBuffer);
+    // Generate temp URL (respond immediately)
+    const tempId = uuidv4();
+    const pdfFileName = `pdfs/invoice_${invoiceNumber}_${tempId}.pdf`;
+    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${pdfFileName}`;
 
-    // Upload to Firebase Storage
-    const bucket = admin.storage().bucket();
-    const file = bucket.file(`pdfs/${pdfFileName}`);
+    res.json({ status: "processing", pdfUrl: publicUrl });
 
+    // Upload to Firebase in background
+    const file = bucket.file(pdfFileName);
     await file.save(pdfBuffer, {
-      contentType: "application/pdf",
-      metadata: {
-        firebaseStorageDownloadTokens: uuidv4(),
-      },
+      metadata: { contentType: "application/pdf" },
+      resumable: false
     });
+    await file.makePublic();
 
-    const url = `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/pdfs%2F${encodeURIComponent(
-      pdfFileName
-    )}?alt=media`;
-
-    return res.status(200).json({ pdfUrl: url });
-  } catch (error) {
-    console.error("❌ Failed to generate PDF:", error);
-    return res.status(500).json({
+  } catch (err) {
+    console.error("PDF generation error:", err);
+    res.status(500).json({
       error: "Failed to generate PDF",
-      details: error.message,
+      details: err.message
     });
   }
-};
+});
 
-// Export for Express
-module.exports = generatePdfHandler;
-
-// Export for Firebase Functions
-if (process.env.FUNCTIONS_FRAMEWORK === "firebase") {
-  const { onRequest } = require("firebase-functions/v2/https");
-  exports.generatePdf = onRequest(
-    {
-      memory: "1GiB",
-      timeoutSeconds: 300,
-    },
-    generatePdfHandler
-  );
-}
+const PORT = 8080;
+app.listen(PORT, () => {
+  console.log(`PDF generator running on port ${PORT}`);
+});
